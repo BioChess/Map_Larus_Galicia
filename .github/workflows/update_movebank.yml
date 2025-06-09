@@ -1,0 +1,85 @@
+name: Actualizar datos Movebank
+
+#on:
+ # schedule:
+   # - cron: '0 */12 * * *'  # Ejecutar cada 12 horas
+  #workflow_dispatch:
+
+jobs:
+  update-movebank:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up R
+      uses: r-lib/actions/setup-r@v2
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libcurl4-openssl-dev libpng-dev gdal-bin libgdal-dev pandoc
+
+    - name: Instalar paquetes R
+      run: |
+        Rscript -e 'if (!requireNamespace("pacman", quietly = TRUE)) install.packages("pacman")'
+        Rscript -e 'pacman::p_load(dplyr, lubridate, move, leaflet, htmlwidgets, remotes)'
+        Rscript -e 'if (!"move" %in% installed.packages()[,"Package"]) remotes::install_version("move", version = "4.0.6", repos = "http://cran.us.r-project.org")'
+
+    - name: Limpiar archivos anteriores
+      run: |
+        rm -f docs/index.html
+        rm -rf docs/index_files
+        mkdir -p docs
+
+    - name: Descargar datos de Movebank
+      run: |
+        Rscript 00_Download_data_Movebank.R
+        if ! ls gps_data_*.csv 1> /dev/null 2>&1; then
+          echo "Error: No se generó ningún archivo gps_data_*.csv"
+          exit 1
+        fi
+      env:
+        MOVEBANK_USER: ${{ secrets.MOVEBANK_USER }}
+        MOVEBANK_PASS: ${{ secrets.MOVEBANK_PASS }}
+
+    - name: Generar mapa interactivo
+      run: |
+        Rscript 01_Interactive_map.R
+
+        # Verifica que index.html esté en docs/
+        if [ ! -s docs/index.html ]; then
+          echo "Error: docs/index.html no se generó correctamente."
+          exit 1
+        fi
+
+        # Verifica si se generó docs/index_files
+        if [ ! -d "docs/index_files" ]; then
+          echo "Error: No se generó docs/index_files, el mapa no funcionará en GitHub Pages."
+          exit 1
+        fi
+
+    - name: Subir cambios a GitHub
+      run: |
+        git config --global user.name "github-actions"
+        git config --global user.email "actions@github.com"
+        git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/BioChess/Interactive_map_web.git
+        git fetch origin main
+        git reset --hard origin/main
+
+        # Limpiar archivos GPS antiguos (mantener los 2 más recientes)
+        ls -tp gps_data_*.csv 2>/dev/null | grep -v '/$' | tail -n +3 | xargs -r rm --
+        
+        # Agregar los nuevos archivos
+        git add gps_data_*.csv docs/index.html
+        if [ -d "docs/index_files" ]; then
+          git add docs/index_files/
+        fi
+
+        git commit -m "Actualización automática con archivos actualizados" || echo "Sin cambios para hacer commit"
+        git push origin main
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+
