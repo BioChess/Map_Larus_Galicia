@@ -13,11 +13,29 @@ gps.df <- read.csv(latest_file)
 gps.df$datetimeGMT <- as.POSIXct(gps.df$datetimeGMT, format="%Y-%m-%d %H:%M:%S", tz="GMT")
 
 # Filtrar datos de los últimos 2 días
-lst_days <- as.POSIXct(Sys.time(), tz="GMT") - (2 * 24 * 60 * 60)  # Hace 2 días
+lst_days <- as.POSIXct(Sys.time(), tz="GMT") - (3 * 24 * 60 * 60)  # Hace 2 días
 gps.df2 <- gps.df %>% filter(datetimeGMT >= lst_days)
 
 # Crear la paleta de colores para cada birdID
 pal.colors <- colorFactor(palette = "Set1", domain = gps.df$birdID)
+
+# Crear las paletas de colores para LARFUS y LARMIC
+green_palette <- colorRampPalette(c("gold4", "darkorange"))(10)
+orange_palette <- colorRampPalette(c("lightgreen", "darkgreen"))(10)
+
+# Función para asignar colores según el prefijo del birdID
+get_color <- function(birdID) {
+  if (startsWith(as.character(birdID), "6")) {
+    # LARFUS: BirdID empieza con "6"
+    return(sample(green_palette, 1))
+  } else if (startsWith(as.character(birdID), "7")) {
+    # LARMIC: BirdID empieza con "7"
+    return(sample(orange_palette, 1))
+  }
+  return("grey")  # Color por defecto para otros casos
+}
+
+
 
 # Crear el mapa base
 leafletOptions <- leaflet::leafletOptions(preferCanvas = TRUE)
@@ -38,6 +56,7 @@ for (bird in grupos) {
   }
   
   lst_pos <- gps.ind %>% filter(datetimeGMT == max(datetimeGMT))  # Último punto
+  color <- get_color(bird)  # Obtener el color basado en el prefijo del birdID
   
   imap <- imap %>%
     addPolylines(
@@ -50,7 +69,7 @@ for (bird in grupos) {
     addCircleMarkers(
       lng = ~longitude, lat = ~latitude, 
       data = gps.ind,
-      radius = 0.5, color = ~pal.colors(birdID), 
+      radius = 0.5, color = color, 
       popup = ~paste("ID:", birdID, "<br>Fecha:", datetimeGMT, "Sex:", sex),
       group = bird  # Asigna un grupo con el nombre del birdID
     ) %>% 
@@ -97,8 +116,6 @@ saveWidget(imap, file = "docs/index.html", selfcontained = TRUE)
 #saveWidget(imap, file = "docs/index.html", selfcontained = FALSE, libdir = "docs/index_files")
 cat(sprintf("\n<!-- Última actualización: %s -->\n", timestamp),
     file = "docs/index.html", append = TRUE)
-
-
 
 
 
