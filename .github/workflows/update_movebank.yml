@@ -1,9 +1,9 @@
 name: Actualizar datos Movebank
 
-#on:
- # schedule:
-   # - cron: '0 */12 * * *'  # Ejecutar cada 12 horas
-  #workflow_dispatch:
+on:
+  schedule:
+    - cron: '0 0 * * *'  # Ejecutar cada 24 horas
+  workflow_dispatch:
 
 jobs:
   update-movebank:
