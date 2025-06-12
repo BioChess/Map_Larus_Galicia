@@ -35,8 +35,6 @@ get_color <- function(birdID) {
   return("grey")  # Color por defecto para otros casos
 }
 
-
-
 # Crear el mapa base
 leafletOptions <- leaflet::leafletOptions(preferCanvas = TRUE)
 imap <- leaflet(options = leafletOptions) %>%
@@ -109,13 +107,30 @@ if (file.exists("docs/index.html")) file.remove("docs/index.html")
 if (dir.exists("docs/index_files")) unlink("docs/index_files", recursive = TRUE)
 
 # Guardar el mapa correctamente
+# Guardar el mapa correctamente
 if (!dir.exists("docs")) {
-  dir.create("docs")
+  dir.create("docs", recursive = TRUE, showWarnings = FALSE)
 }
-saveWidget(imap, file = "docs/index.html", selfcontained = TRUE)
-#saveWidget(imap, file = "docs/index.html", selfcontained = FALSE, libdir = "docs/index_files")
-cat(sprintf("\n<!-- Última actualización: %s -->\n", timestamp),
-    file = "docs/index.html", append = TRUE)
+
+# Modifica la parte final del script donde guardas el mapa:
+tryCatch({
+  saveWidget(imap, 
+             file = "docs/index.html", 
+             selfcontained = FALSE, 
+             libdir = "index_files",  # Importante: sin la ruta docs/
+             title = "Mapa Larus Galicia")
+  
+  # Mover los archivos a la ubicación correcta
+  if(dir.exists("index_files")) {
+    file.rename("index_files", "docs/index_files")
+  }
+  
+  cat(sprintf("\n<!-- Última actualización: %s -->\n", timestamp), 
+      file = "docs/index.html", append = TRUE)
+}, error = function(e) {
+  message("ERROR al guardar el widget: ", e$message)
+  quit(status = 1)
+})
 
 
 
