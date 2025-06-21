@@ -20,8 +20,12 @@ gps.df2 <- gps.df %>% filter(datetimeGMT >= lst_days)
 pal.colors <- colorFactor(palette = "Set1", domain = gps.df$birdID)
 
 # Crear las paletas de colores para LARFUS y LARMIC
-green_palette <- colorRampPalette(c("gold4", "darkorange"))(10)
-orange_palette <- colorRampPalette(c("lightgreen", "darkgreen"))(10)
+orange_palette <- colorRampPalette(c("gold4", "darkorange"))(10)
+green_palette <- colorRampPalette(c("lightgreen", "darkgreen"))(10)
+
+# Elige un color representativo de cada paleta
+color_larfus<- 'darkgreen'
+color_larmic <- 'orange'
 
 # Función para asignar colores según el prefijo del birdID
 get_color <- function(birdID) {
@@ -93,11 +97,19 @@ for (bird in grupos) {
 timestamp <- format(Sys.time(), "%Y%m%d_%H%M", tz = "GMT", usetz = TRUE)
 
 # Crear texto HTML para mostrar en el mapa
-update_label <- paste0("Última actualización: ", format(Sys.time(), "%d-%m-%Y %H:%M", tz = "GMT", usetz = TRUE))
+update_label <- paste0("Last update: ", format(Sys.time(), "%d-%m-%Y %H:%M", tz = "GMT", usetz = TRUE))
 
 # Añadir el control al mapa (abajo a la derecha)
 imap <- imap %>%
-  addControl(html = update_label, position = "topright")
+  addControl(html = update_label, position = "topright")%>%
+  addLegend(
+    position = "bottomright",
+    colors = c(color_larfus, color_larmic),
+    labels = c("Lesser black-backed gull", "Yellow-legged gull"),
+    title = "Species",
+    opacity = 1#,
+    #className = "custom-legend"
+  )
 
 if (length(imap$x$calls) == 0) {
   imap <- imap %>% addControl(html = "Sin datos recientes para mostrar", position = "topright")
