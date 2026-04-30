@@ -30,7 +30,9 @@ jobs:
           libgdal-dev \
           pandoc \
           libudunits2-dev \
-          libproj-dev
+          libproj-dev \
+          libuv1-dev
+          
     - name: Instalar paquetes R
       run: |
         Rscript -e 'install.packages(c("pacman", "remotes", "htmlwidgets"), repos="https://cloud.r-project.org")'
