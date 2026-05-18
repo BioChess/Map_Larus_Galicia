@@ -1,111 +1,154 @@
 name: Actualizar datos Movebank
-
 on:
   schedule:
     - cron: '0 0 * * *'  # Ejecutar cada 24 horas (a la medianoche UTC)
   workflow_dispatch:
+    inputs:
+      diagnostico:
+        description: 'Ejecutar diagnóstico de red antes de descargar'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
 
 jobs:
   update-movebank:
     runs-on: ubuntu-latest
-
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0  # Necesario para el historial completo de Git
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Necesario para el historial completo de Git
 
-    - name: Set up R
-      uses: r-lib/actions/setup-r@v2
-      with:
-        r-version: '4.3'  # Versión específica de R
+      - name: Forzar IPv4 a nivel de sistema
+        run: |
+          # Movebank a veces se cuelga resolviendo AAAA en runners de GitHub.
+          # Esto hace que getaddrinfo() prefiera IPv4 globalmente.
+          echo "precedence ::ffff:0:0/96  100" | sudo tee -a /etc/gai.conf
+          getent ahosts www.movebank.org | head -5
 
-    - name: Install system dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y \
-          libcurl4-openssl-dev \
-          libpng-dev \
-          gdal-bin \
-          libgdal-dev \
-          pandoc \
-          libudunits2-dev \
-          libproj-dev \
-          libuv1-dev
-          
-    - name: Instalar paquetes R
-      run: |
-        Rscript -e 'install.packages(c("pacman", "remotes", "htmlwidgets"), repos="https://cloud.r-project.org")'
-        Rscript -e 'pacman::p_load(dplyr, lubridate, leaflet, htmlwidgets, sf, shiny)'
-        Rscript -e 'if (!"move" %in% installed.packages()[,"Package"]) remotes::install_version("move", version = "4.0.6", repos = "http://cran.us.r-project.org")'
-        Rscript -e 'packageVersion("htmlwidgets")'  # Verificar versión
-    - name: Preparar entorno
-      run: |
-        # Crear y asegurar permisos en docs
-        mkdir -p docs
-        chmod -R 755 docs
-        rm -f docs/index.html
-        rm -rf docs/index_files
-    - name: Descargar datos de Movebank
-      run: |
-        Rscript 00_Download_data_Movebank.R
-        if ! ls gps_data_*.csv 1> /dev/null 2>&1; then
-          echo "::error::No se generó ningún archivo gps_data_*.csv"
-          ls -la  # Listar archivos para debug
-          exit 1
-        fi
-      env:
-        MOVEBANK_USER: ${{ secrets.MOVEBANK_USER }}
-        MOVEBANK_PASS: ${{ secrets.MOVEBANK_PASS }}
+      - name: Set up R
+        uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: '4.3'  # Versión específica de R
 
-    - name: Generar mapa interactivo
-      run: |
-        echo "=== Versión de R y paquetes ==="
-        Rscript -e 'sessionInfo()'
-        
-        echo "=== Generando mapa ==="
-        Rscript --verbose 01_Interactive_map.R
-        
-        echo "=== Verificando salida ==="
-        if [ ! -f "docs/index.html" ]; then
-          echo "::error::El archivo docs/index.html no se generó"
-          ls -R docs/  # Listar contenido para debug
-          exit 1
-        fi
-        
-        if [ ! -d "docs/index_files" ] || [ -z "$(ls -A docs/index_files)" ]; then
-          echo "::error::La carpeta docs/index_files no se generó correctamente"
-          echo "Contenido de docs/:"
-          ls -l docs/
-          exit 1
-        fi
-        
-        echo "=== Estructura generada correctamente ==="
-        ls -R docs/
-    - name: Subir cambios a GitHub
-      run: |
-        git config --global user.name "github-actions"
-        git config --global user.email "actions@github.com"
-        git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/BioChess/Map_Larus_Galicia.git
-        
-        # Obtener los últimos cambios
-        git pull origin main
-        
-        # Limpiar archivos GPS antiguos (mantener los 2 más recientes)
-        ls -tp gps_data_*.csv 2>/dev/null | grep -v '/$' | tail -n +3 | xargs -d '\n' -r rm -f --
-        
-        # Agregar cambios
-        git add gps_data_*.csv
-        git add docs/index.html docs/index_files/*
-        
-        # Verificar si hay cambios
-        if [ -z "$(git status --porcelain)" ]; then
-          echo "No hay cambios para hacer commit"
-        else
-          git commit -m "Actualización automática $(date +'%Y-%m-%d %H:%M')"
-          git push origin main
-        fi
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libcurl4-openssl-dev \
+            libpng-dev \
+            gdal-bin \
+            libgdal-dev \
+            pandoc \
+            libudunits2-dev \
+            libproj-dev \
+            libuv1-dev
 
+      - name: Instalar paquetes R
+        run: |
+          Rscript -e 'install.packages(c("pacman", "remotes", "htmlwidgets"), repos="https://cloud.r-project.org")'
+          Rscript -e 'pacman::p_load(dplyr, lubridate, leaflet, htmlwidgets, sf, shiny, httr)'
+          Rscript -e 'if (!"move" %in% installed.packages()[,"Package"]) remotes::install_version("move", version = "4.0.6", repos = "http://cran.us.r-project.org")'
+          Rscript -e 'packageVersion("htmlwidgets")'  # Verificar versión
 
+      - name: Preparar entorno
+        run: |
+          # Crear y asegurar permisos en docs
+          mkdir -p docs
+          chmod -R 755 docs
+          rm -f docs/index.html
+          rm -rf docs/index_files
+
+      - name: Diagnóstico de red a Movebank
+        if: ${{ inputs.diagnostico == 'true' }}
+        run: |
+          echo "--- DNS A ---"
+          dig +short A www.movebank.org || true
+          echo "--- DNS AAAA ---"
+          dig +short AAAA www.movebank.org || true
+          echo "--- HEAD HTTPS (IPv4) ---"
+          curl -4 -sS -o /dev/null -w "HTTP %{http_code} en %{time_total}s\n" \
+            --max-time 30 https://www.movebank.org/ || echo "Falló IPv4"
+          echo "--- Endpoint API direct-read ---"
+          curl -4 -sS -o /tmp/test.csv -w "HTTP %{http_code} en %{time_total}s\n" \
+            --max-time 60 -u "$MOVEBANK_USER:$MOVEBANK_PASS" \
+            "https://www.movebank.org/movebank/service/direct-read?entity_type=study&attributes=id,name" || true
+          echo "--- Primeras líneas de la respuesta ---"
+          head -3 /tmp/test.csv || true
+        env:
+          MOVEBANK_USER: ${{ secrets.MOVEBANK_USER }}
+          MOVEBANK_PASS: ${{ secrets.MOVEBANK_PASS }}
+
+      - name: Descargar datos de Movebank
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 15
+          max_attempts: 4
+          retry_wait_seconds: 45
+          retry_on: error
+          command: |
+            Rscript 00_Download_data_Movebank.R
+            if ! ls gps_data_*.csv 1> /dev/null 2>&1; then
+              echo "::error::No se generó ningún archivo gps_data_*.csv"
+              ls -la  # Listar archivos para debug
+              exit 1
+            fi
+        env:
+          MOVEBANK_USER: ${{ secrets.MOVEBANK_USER }}
+          MOVEBANK_PASS: ${{ secrets.MOVEBANK_PASS }}
+          R_DEFAULT_INTERNET_TIMEOUT: '300'
+          CURL_IPRESOLVE: '4'
+
+      - name: Generar mapa interactivo
+        run: |
+          echo "=== Versión de R y paquetes ==="
+          Rscript -e 'sessionInfo()'
+
+          echo "=== Generando mapa ==="
+          Rscript --verbose 01_Interactive_map.R
+
+          echo "=== Verificando salida ==="
+          if [ ! -f "docs/index.html" ]; then
+            echo "::error::El archivo docs/index.html no se generó"
+            ls -R docs/  # Listar contenido para debug
+            exit 1
+          fi
+
+          if [ ! -d "docs/index_files" ] || [ -z "$(ls -A docs/index_files)" ]; then
+            echo "::error::La carpeta docs/index_files no se generó correctamente"
+            echo "Contenido de docs/:"
+            ls -l docs/
+            exit 1
+          fi
+
+          echo "=== Estructura generada correctamente ==="
+          ls -R docs/
+
+      - name: Subir cambios a GitHub
+        run: |
+          git config --global user.name "github-actions"
+          git config --global user.email "actions@github.com"
+          git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/BioChess/Map_Larus_Galicia.git
+
+          # Obtener los últimos cambios
+          git pull origin main
+
+          # Limpiar archivos GPS antiguos (mantener los 2 más recientes)
+          ls -tp gps_data_*.csv 2>/dev/null | grep -v '/$' | tail -n +3 | xargs -d '\n' -r rm -f --
+
+          # Agregar cambios
+          git add gps_data_*.csv
+          git add docs/index.html docs/index_files/*
+
+          # Verificar si hay cambios
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "No hay cambios para hacer commit"
+          else
+            git commit -m "Actualización automática $(date +'%Y-%m-%d %H:%M')"
+            git push origin main
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
