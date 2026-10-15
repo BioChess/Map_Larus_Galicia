@@ -133,21 +133,29 @@ jobs:
           git config --global user.email "actions@github.com"
           git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/BioChess/Map_Larus_Galicia.git
 
-          # Obtener los últimos cambios
-          git pull origin main
+          # Guardar el mapa ANTES del reset (si no, se restauraría el docs/ antiguo)
+          mkdir -p /tmp/out
+          cp -r docs /tmp/out/docs
 
-          # Limpiar archivos GPS antiguos (mantener los 2 más recientes)
-          ls -tp gps_data_*.csv 2>/dev/null | grep -v '/$' | tail -n +3 | xargs -d '\n' -r rm -f --
+          git fetch origin main
+          git reset --hard origin/main
 
-          # Agregar cambios
-          git add gps_data_*.csv
-          git add docs/index.html docs/index_files/*
+          # Restaurar el mapa generado encima del estado de origin/main
+          rm -rf docs/index.html docs/index_files
+          mkdir -p docs
+          cp -r /tmp/out/docs/. docs/
+
+          # Dejar de versionar los CSV (los que ya estuvieran subidos se eliminan del repo)
+          git rm --cached --ignore-unmatch -q 'gps_data_*.csv'
+
+          # Agregar solo el mapa, incluidos los archivos borrados
+          git add -A -- docs
 
           # Verificar si hay cambios
           if [ -z "$(git status --porcelain)" ]; then
             echo "No hay cambios para hacer commit"
           else
-            git commit -m "Actualización automática $(date +'%Y-%m-%d %H:%M')"
+            git commit -m "Actualización automática del mapa $(date +'%Y-%m-%d %H:%M')"
             git push origin main
           fi
         env:
